@@ -1,0 +1,95 @@
+import os
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from sklearn import preprocessing
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score, cross_validate
+from sklearn.pipeline import make_pipeline
+from sklearn.utils import shuffle
+import seaborn as sns
+
+
+ROOT_DIR = "."
+DATA_DIR = os.path.join(ROOT_DIR, "dane_projekt")
+
+
+def get_mapping_of_categories(y: np.ndarray):
+    uniques = np.unique(y)
+    return {idx: elem for idx, elem in enumerate(uniques)}
+
+
+def load_file_and_split_into_x_and_y(file_name: str):
+    data = np.loadtxt(os.path.join(DATA_DIR, file_name))
+    return data[:, :-1], data[:, -1]
+
+
+def create_merged_dataset(folder_name = "dane_projekt"):
+    file_names = os.listdir(folder_name)
+    x_list = []
+    y_list = []
+    for file_name in file_names:
+        x, y = load_file_and_split_into_x_and_y(file_name)
+        x_list.append(x)
+        y_list.append(y)
+    return np.concatenate(x_list), np.concatenate(y_list)
+
+x, y = create_merged_dataset()
+x, y = shuffle(x, y)
+
+mapping = get_mapping_of_categories(y)
+
+x = preprocessing.StandardScaler().fit_transform(x)
+
+# Cross validation
+scoring = ['f1_weighted', 'accuracy']
+clf = make_pipeline(LogisticRegression(random_state=0))
+scores = cross_validate(clf, x, y, cv=5, scoring=scoring)
+
+# Feature importance
+
+forest = RandomForestClassifier(random_state=0)
+forest.fit(x, y)
+importances = forest.feature_importances_
+std = np.std([tree.feature_importances_ for tree in forest.estimators_], axis=0)
+
+feature_names = [f"feature {i}" for i in range(x.shape[1])]
+forest_importances = pd.Series(importances, index=feature_names)
+
+fig, ax = plt.subplots(figsize=(12,8))
+forest_importances.plot.bar(yerr=std, ax=ax)
+ax.set_title("Feature importances using MDI")
+ax.set_ylabel("Mean decrease in impurity")
+fig.tight_layout()
+plt.savefig("figures/importances.png")
+plt.show()
+
+# Correlation
+
+df = pd.DataFrame(x)
+# Compute the correlation matrix
+corr = df.corr()
+
+# Generate a mask for the upper triangle
+mask = np.triu(np.ones_like(corr, dtype=bool))
+
+# Set up the matplotlib figure
+f, ax = plt.subplots(figsize=(11, 9))
+
+# Generate a custom diverging colormap
+cmap = sns.diverging_palette(230, 20, as_cmap=True)
+
+# Draw the heatmap with the mask and correct aspect ratio
+sns.heatmap(corr, mask=mask, cmap=cmap, vmax=.3, center=0,
+            square=True, linewidths=.5, cbar_kws={"shrink": .5})
+plt.savefig("figures/corr.png")
+
+
+# Class imbalance
+classes, counts = np.unique(y, return_counts=True)
+plt.figure(figsize=(8,8))
+plt.pie(list(counts), labels=[str(int(elem)) for elem in classes])
+plt.savefig("figures/imbalance.png")
+plt.show()
+
