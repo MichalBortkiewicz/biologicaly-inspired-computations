@@ -41,6 +41,9 @@ if __name__ == "__main__":
     x, y = shuffle(x, y)
 
     mapping = get_mapping_of_categories(y)
+    mapping_orginal_to_new = dict((y, x) for x, y in mapping.items())
+
+    y_mapped = np.array([mapping_orginal_to_new[elem ] for elem in y])
 
     x = preprocessing.StandardScaler().fit_transform(x)
 

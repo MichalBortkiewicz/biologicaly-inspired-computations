@@ -1,6 +1,10 @@
+import copy
 import os
 import torch
+from pytorch_lightning.loggers import TensorBoardLogger
+from sklearn import preprocessing
 from sklearn.metrics import confusion_matrix, accuracy_score
+from sklearn.model_selection import KFold
 from sklearn.utils import shuffle
 from torch import nn
 import numpy as np
@@ -13,7 +17,7 @@ from torch.utils.data import DataLoader, TensorDataset
 import pytorch_lightning as pl
 from torchmetrics import Accuracy
 
-from data_inspection import create_merged_dataset
+from data_inspection import create_merged_dataset, get_mapping_of_categories
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -87,33 +91,91 @@ class MLP(pl.LightningModule):
 if __name__ == "__main__":
     x, y = create_merged_dataset()
     x, y = shuffle(x, y)
+    y_preprocessed = copy.deepcopy(y)
+    x = preprocessing.StandardScaler().fit_transform(x)
 
-    y += 103
 
-    x_test, y_test = x[700:], y[700:]
-    x, y = x[:700], y[:700]
+    mapping = get_mapping_of_categories(y)
+    mapping_orginal_to_new = dict((y, x) for x, y in mapping.items())
 
-    # TODO: so that there are no negative classes - add preprocessing and mapping
+    y_original = np.array([mapping_orginal_to_new[elem] for elem in y])
+    x_original = copy.deepcopy(x)
 
-    tensor_x = torch.Tensor(x)  # transform to torch tensor
-    tensor_y = torch.Tensor(y).type(torch.LongTensor)
+    #
+    # x_test, y_test = x[700:], y[700:]
+    # x, y = x[:700], y[:700]
+    #
+    # # TODO: so that there are no negative classes - add preprocessing and mapping
+    #
+    # tensor_x = torch.Tensor(x)  # transform to torch tensor
+    # tensor_y = torch.Tensor(y).type(torch.LongTensor)
+    #
+    # dataset_train = TensorDataset(tensor_x, tensor_y)  # create your datset
+    # dataloader_train = DataLoader(
+    #     dataset_train, batch_size=32
+    # )  # create your dataloader
+    #
+    # tensor_x_test = torch.Tensor(x_test)  # transform to torch tensor
+    # tensor_y_test = torch.Tensor(y_test).type(torch.LongTensor)
+    #
+    # dataset_test = TensorDataset(tensor_x_test, tensor_y_test)  # create your datset
+    # dataloader_test = DataLoader(dataset_test, batch_size=32)  # create your dataloader
+    #
+    # pl.seed_everything(42)
+    # mlp = MLP()
+    # trainer = pl.Trainer(
+    #     auto_scale_batch_size="power", gpus=0, deterministic=True, max_epochs=20
+    # )
+    # # trainer.fit(mlp, DataLoader(dataset))
+    # trainer.fit(mlp, dataloader_train)
+    # results = trainer.test(mlp, dataloader_test)
 
-    dataset_train = TensorDataset(tensor_x, tensor_y)  # create your datset
-    dataloader_train = DataLoader(
-        dataset_train, batch_size=32
-    )  # create your dataloader
+    kfold = KFold()
 
-    tensor_x_test = torch.Tensor(x_test)  # transform to torch tensor
-    tensor_y_test = torch.Tensor(y_test).type(torch.LongTensor)
+    for fold, (train_idx, valid_idx) in enumerate(kfold.split(x_original)):
+        # train_loader = create_dataloader(train_df.iloc[train_idx])
+        # valid_loader = create_dataloader(train_df.iloc[valid_idx])
+        #
 
-    dataset_test = TensorDataset(tensor_x_test, tensor_y_test)  # create your datset
-    dataloader_test = DataLoader(dataset_test, batch_size=32)  # create your dataloader
+        # # Folder hack
+        # tb_logger = TensorBoardLogger(save_dir=OUTPUT_PATH, name=f'{args.model_name}', version=f'fold_{fold + 1}')
+        # os.makedirs(OUTPUT_PATH / f'{args.model_name}, exist_ok=True)
+        # checkpoint_callback = ModelCheckpoint(filepath=tb_logger.log_dir + "/{epoch:02d}-{val_metric:.4f}",
+        #                                       monitor='val_metric', mode='max')
+        #
+        # model = YourPLModule(args)
+        # trainer = pl.Trainer(logger=tb_logger, early_stop_callback=early_stop_callback,
+        #                      checkpoint_callback=checkpoint_callback)
+        # trainer.fit(model, train_dataloader=train_loader, val_dataloaders=valid_loader)
 
-    pl.seed_everything(42)
-    mlp = MLP()
-    trainer = pl.Trainer(
-        auto_scale_batch_size="power", gpus=0, deterministic=True, max_epochs=20
-    )
-    # trainer.fit(mlp, DataLoader(dataset))
-    trainer.fit(mlp, dataloader_train)
-    results = trainer.test(mlp, dataloader_test)
+
+        # TODO: add logger of training curves to tensor board
+        x_test, y_test = x_original[valid_idx], y_original[valid_idx]
+        x, y = x_original[train_idx], y_original[train_idx]
+
+        # TODO: so that there are no negative classes - add preprocessing and mapping
+
+        tensor_x = torch.Tensor(x)  # transform to torch tensor
+        tensor_y = torch.Tensor(y).type(torch.LongTensor)
+
+        dataset_train = TensorDataset(tensor_x, tensor_y)  # create your datset
+        dataloader_train = DataLoader(
+            dataset_train, batch_size=32
+        )  # create your dataloader
+
+        tensor_x_test = torch.Tensor(x_test)  # transform to torch tensor
+        tensor_y_test = torch.Tensor(y_test).type(torch.LongTensor)
+
+        dataset_test = TensorDataset(tensor_x_test, tensor_y_test)  # create your datset
+        dataloader_test = DataLoader(
+            dataset_test, batch_size=32
+        )  # create your dataloader
+
+        pl.seed_everything(42)
+        mlp = MLP()
+        trainer = pl.Trainer(
+            auto_scale_batch_size="power", gpus=0, deterministic=True, max_epochs=20
+        )
+        # trainer.fit(mlp, DataLoader(dataset))
+        trainer.fit(mlp, train_dataloader=dataloader_train,val_dataloaders=dataloader_test)
+        results = trainer.test(mlp, dataloader_test)
