@@ -4,13 +4,18 @@ import torch
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn import preprocessing
-from sklearn.metrics import confusion_matrix, accuracy_score
+from sklearn.metrics import (
+    confusion_matrix,
+    accuracy_score,
+    f1_score,
+    classification_report,
+)
 from sklearn.model_selection import KFold
 from sklearn.utils import shuffle
 from torch import nn
 import numpy as np
 import pickle
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
 
 import pytorch_lightning as pl
 from torchmetrics import Accuracy, F1
@@ -49,6 +54,10 @@ class MLP(pl.LightningModule):
     def forward(self, x):
         x = self.model(x)
         return x
+
+    def predict(self, x):
+        probs = self.forward(x)
+        return probs.argmax(axis=1)
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -93,21 +102,43 @@ class MLP(pl.LightningModule):
         self.test_acc.update(preds, y)
         self.test_f1.update(preds, y)
         self.log("test_loss", loss, prog_bar=True)
+        # self.log("test_acc", self.test_acc.compute(), prog_bar=True)
+        # self.log("test_f1", self.test_f1.compute(), prog_bar=True)
+        return loss
+
+    def test_epoch_end(self, outs):
         self.log("test_acc", self.test_acc.compute(), prog_bar=True)
         self.log("test_f1", self.test_f1.compute(), prog_bar=True)
-        return loss
+        self.test_acc.reset()
+        self.test_f1.reset()
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        # optimizer = torch.optim.SGD(self.parameters(), lr=0.01, momentum=0.9)
         return optimizer
 
 
-def create_dataloader_from_xy(x, y) -> DataLoader:
+def create_sampler(y_original, y_training):
+    class_sample_count = np.array(
+        [len(np.where(y_original == t)[0]) for t in np.unique(y_original)]
+    )
+    weight = 1.0 / class_sample_count
+    samples_weight = np.array([weight[t] for t in y_training])
+
+    samples_weight = torch.from_numpy(samples_weight)
+    samples_weight = samples_weight.double()
+    sampler = WeightedRandomSampler(samples_weight, len(samples_weight))
+    return sampler
+
+
+def create_dataloader_from_xy(x, y, shuffle=False, sampler=None) -> DataLoader:
     tensor_x = torch.Tensor(x)  # transform to torch tensor
     tensor_y = torch.Tensor(y).type(torch.LongTensor)
 
     dataset = TensorDataset(tensor_x, tensor_y)  # create your datset
-    dataloader = DataLoader(dataset, batch_size=32)  # create your dataloader
+    dataloader = DataLoader(
+        dataset, batch_size=32, sampler=sampler, shuffle=shuffle
+    )  # create your dataloader
     return dataloader
 
 
@@ -129,8 +160,12 @@ HIDDEN_UNITS_TO_CHECK = [
     [128],
     [128, 128],
     [256, 128],
-    [1024],
-    [1024, 128]
+    [256],
+    [1024, 128],
+    # [1024],
+    # [2024]
+    [64],
+
 ]
 
 if __name__ == "__main__":
@@ -176,7 +211,11 @@ if __name__ == "__main__":
             x_test, y_test = x_original[valid_idx], y_original[valid_idx]
             x, y = x_original[train_idx], y_original[train_idx]
 
-            dataloader_train = create_dataloader_from_xy(x, y)
+            sampler = create_sampler(y_original, y)
+            # dataloader_train = create_dataloader_from_xy(x, y,shuffle=True, sampler=sampler)
+            dataloader_train = create_dataloader_from_xy(
+                x, y, shuffle=True, sampler=None
+            )
 
             dataloader_test = create_dataloader_from_xy(x_test, y_test)
 
@@ -185,7 +224,7 @@ if __name__ == "__main__":
                 auto_scale_batch_size="power",
                 gpus=0,
                 deterministic=True,
-                max_epochs=100,
+                max_epochs=200,
                 logger=tb_logger,
                 callbacks=[checkpoint_callback],
             )
@@ -195,9 +234,21 @@ if __name__ == "__main__":
 
             result = trainer.test(mlp, dataloader_test)
             print("results:", result)
-            results[model_name][fold] = result
+            # results[model_name][fold] = result
+
+            y_pred = mlp.predict(torch.Tensor(x_test).cpu())
+            f1 = f1_score(y_test, y_pred, average="weighted")
+            acc = accuracy_score(y_test, y_pred)
+            results[model_name][fold] = {"test_acc": acc, "test_f1": f1}
 
         results_file_path = os.path.join(RESULTS_PATH, f"{model_name}.pkl")
         os.makedirs(os.path.dirname(results_file_path), exist_ok=True)
         results_file = open(results_file_path, "wb")
         pickle.dump(results, results_file)
+
+        # print(
+        #     classification_report(
+        #         y_test,
+        #         y_pred,
+        #     )
+        # )

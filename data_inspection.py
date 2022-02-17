@@ -1,3 +1,4 @@
+import pickle
 import copy
 import os
 import matplotlib.pyplot as plt
@@ -6,8 +7,8 @@ import pandas as pd
 from sklearn import preprocessing
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report
-from sklearn.model_selection import cross_val_score, cross_validate
+from sklearn.metrics import classification_report, f1_score, accuracy_score
+from sklearn.model_selection import cross_val_score, cross_validate, KFold
 from sklearn.pipeline import make_pipeline
 from sklearn.utils import shuffle, class_weight
 import seaborn as sns
@@ -67,7 +68,37 @@ if __name__ == "__main__":
         clf, x_original, y_original, cv=5, scoring=scoring, return_train_score=True
     )
 
-    # corss check
+    RESULTS_PATH = os.path.join("artifacts", "results")
+
+    # results_file_path = os.path.join(RESULTS_PATH, "baseline.pkl")
+    # os.makedirs(os.path.dirname(results_file_path), exist_ok=True)
+    # results_file = open(results_file_path, "wb")
+    # pickle.dump(results, results_file)
+
+    model_name = "baseline"
+    kfold = KFold(shuffle=True, random_state=42)
+    results = {}
+    results[model_name] = {}
+    for fold, (train_idx, valid_idx) in enumerate(kfold.split(x_original)):
+        x_test, y_test = x_original[valid_idx], y_original[valid_idx]
+        x, y = x_original[train_idx], y_original[train_idx]
+
+        clf= LogisticRegression(random_state=42, max_iter=500)
+        clf.fit(x, y)
+        y_pred = clf.predict(x_test)
+        f1 = f1_score(y_test, y_pred, average="weighted")
+        acc = accuracy_score(y_test, y_pred)
+        results[model_name][fold] = {"test_acc": acc, "test_f1": f1}
+
+    print(
+        classification_report(
+            y_test,
+            y_pred,
+        )
+    )
+
+
+    # Cross check with class balancing, maybe do it with cross validation
     class_weights = class_weight.compute_class_weight(
         "balanced",
         classes=np.unique(y_original[: int(4 / 5 * x.shape[0])]),
