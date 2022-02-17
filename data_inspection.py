@@ -1,3 +1,4 @@
+import copy
 import os
 import matplotlib.pyplot as plt
 import numpy as np
@@ -5,9 +6,10 @@ import pandas as pd
 from sklearn import preprocessing
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import classification_report
 from sklearn.model_selection import cross_val_score, cross_validate
 from sklearn.pipeline import make_pipeline
-from sklearn.utils import shuffle
+from sklearn.utils import shuffle, class_weight
 import seaborn as sns
 
 
@@ -37,23 +39,47 @@ def create_merged_dataset(folder_name="dane_projekt"):
 
 
 if __name__ == "__main__":
+    # x, y = create_merged_dataset()
+    # x, y = shuffle(x, y)
+    #
+    # mapping = get_mapping_of_categories(y)
+    # mapping_orginal_to_new = dict((y, x) for x, y in mapping.items())
+    #
+    # y_mapped = np.array([mapping_orginal_to_new[elem ] for elem in y])
+    #
+    # x = preprocessing.StandardScaler().fit_transform(x)
+
     x, y = create_merged_dataset()
-    x, y = shuffle(x, y)
+    x, y = shuffle(x, y, random_state=42)
+    y_preprocessed = copy.deepcopy(y)
+    x = preprocessing.StandardScaler().fit_transform(x)
 
     mapping = get_mapping_of_categories(y)
     mapping_orginal_to_new = dict((y, x) for x, y in mapping.items())
 
-    y_mapped = np.array([mapping_orginal_to_new[elem ] for elem in y])
-
-    x = preprocessing.StandardScaler().fit_transform(x)
+    y_original = np.array([mapping_orginal_to_new[elem] for elem in y])
+    x_original = copy.deepcopy(x)
 
     # Cross validation
     scoring = ["f1_weighted", "accuracy"]
-    clf = make_pipeline(LogisticRegression(random_state=0))
-    scores = cross_validate(clf, x, y, cv=5, scoring=scoring)
+    clf = make_pipeline(LogisticRegression(random_state=42, max_iter=500))
+    scores = cross_validate(
+        clf, x_original, y_original, cv=5, scoring=scoring, return_train_score=True
+    )
+
+    # corss check
+    class_weights = class_weight.compute_class_weight('balanced',
+                                                      classes=np.unique(y_original[:int(4/5*x.shape[0])]),
+                                                      y=y_original[:int(4/5*x.shape[0])])
+
+    class_weights = {cls:weight for cls, weight in zip(np.unique(y_original[:int(4/5*x.shape[0])]), class_weights)}
+
+    clf = LogisticRegression(random_state=42, max_iter=500, class_weight=class_weights)
+    clf.fit(x[:int(4/5*x.shape[0])], y_original[:int(4/5*x.shape[0])])
+    y_pred = clf.predict(x[int(4/5*x.shape[0]):])
+    print(classification_report(y_original[int(4/5*x.shape[0]):], y_pred, ))
 
     # Feature importance
-
     forest = RandomForestClassifier(random_state=0)
     forest.fit(x, y)
     importances = forest.feature_importances_

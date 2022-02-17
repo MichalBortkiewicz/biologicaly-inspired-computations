@@ -13,7 +13,7 @@ import pickle
 from torch.utils.data import DataLoader, TensorDataset
 
 import pytorch_lightning as pl
-from torchmetrics import Accuracy
+from torchmetrics import Accuracy, F1
 
 from data_inspection import create_merged_dataset, get_mapping_of_categories
 
@@ -22,13 +22,17 @@ pl.seed_everything(42)
 
 
 class MLP(pl.LightningModule):
-    def __init__(self, input_size=54, hidden_units=(32, 16), output_size=207):
+    def __init__(self, input_size=54, hidden_units=(32, 16), output_size=100):
         super().__init__()
 
         # new PL attributes:
         self.train_acc = Accuracy()
         self.valid_acc = Accuracy()
         self.test_acc = Accuracy()
+
+        self.train_f1 = F1(average="weighted", num_classes=output_size)
+        self.valid_f1 = F1(average="weighted", num_classes=output_size)
+        self.test_f1 = F1(average="weighted", num_classes=output_size)
 
         # Model similar to previous section:
         all_layers = [nn.Flatten()]
@@ -51,13 +55,19 @@ class MLP(pl.LightningModule):
         logits = self(x)
         loss = nn.functional.cross_entropy(self(x), y)
         preds = torch.argmax(logits, dim=1)
+
         self.train_acc.update(preds, y)
+        self.train_f1.update(preds, y)
+
         self.log("train_loss", loss, prog_bar=True)
         return loss
 
     def training_epoch_end(self, outs):
         self.log("train_acc", self.train_acc.compute())
+        self.log("train_f1", self.train_f1.compute())
+
         self.train_acc.reset()
+        self.train_f1.reset()
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
@@ -65,12 +75,15 @@ class MLP(pl.LightningModule):
         loss = nn.functional.cross_entropy(self(x), y)
         preds = torch.argmax(logits, dim=1)
         self.valid_acc.update(preds, y)
+        self.valid_f1.update(preds, y)
         self.log("valid_loss", loss, prog_bar=True)
         return loss
 
     def validation_epoch_end(self, outs):
         self.log("valid_acc", self.valid_acc.compute(), prog_bar=True)
+        self.log("valid_f1", self.valid_f1.compute(), prog_bar=True)
         self.valid_acc.reset()
+        self.valid_f1.reset()
 
     def test_step(self, batch, batch_idx):
         x, y = batch
@@ -78,8 +91,10 @@ class MLP(pl.LightningModule):
         loss = nn.functional.cross_entropy(self(x), y)
         preds = torch.argmax(logits, dim=1)
         self.test_acc.update(preds, y)
+        self.test_f1.update(preds, y)
         self.log("test_loss", loss, prog_bar=True)
         self.log("test_acc", self.test_acc.compute(), prog_bar=True)
+        self.log("test_f1", self.test_f1.compute(), prog_bar=True)
         return loss
 
     def configure_optimizers(self):
@@ -112,13 +127,16 @@ HIDDEN_UNITS_TO_CHECK = [
     [8, 8, 8],
     [64],
     [128],
-    [128,128],
+    [128, 128],
+    [256, 128],
+    [1024],
+    [1024, 128]
 ]
 
 if __name__ == "__main__":
     # Dataset creation
     x, y = create_merged_dataset()
-    x, y = shuffle(x, y)
+    x, y = shuffle(x, y, random_state=42)
     y_preprocessed = copy.deepcopy(y)
     x = preprocessing.StandardScaler().fit_transform(x)
 
@@ -128,8 +146,10 @@ if __name__ == "__main__":
     y_original = np.array([mapping_orginal_to_new[elem] for elem in y])
     x_original = copy.deepcopy(x)
 
+    num_classes = max(mapping.keys()) + 1
+
     # for i in range(len(HIDDEN_UNITS_TO_CHECK)):
-    for i in range(-3,0, 1):
+    for i in range(-1, 0, 1):
         # K fold crossval
         kfold = KFold(shuffle=True, random_state=42)
 
@@ -160,7 +180,7 @@ if __name__ == "__main__":
 
             dataloader_test = create_dataloader_from_xy(x_test, y_test)
 
-            mlp = MLP(hidden_units=hidden_units)
+            mlp = MLP(hidden_units=hidden_units, output_size=num_classes)
             trainer = pl.Trainer(
                 auto_scale_batch_size="power",
                 gpus=0,
