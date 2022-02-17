@@ -29,6 +29,8 @@ pl.seed_everything(42)
 class MLP(pl.LightningModule):
     def __init__(self, input_size=54, hidden_units=(32, 16), output_size=100):
         super().__init__()
+        self.l1_strength = 0.0
+        self.l2_strength = 0.2
 
         # new PL attributes:
         self.train_acc = Accuracy()
@@ -67,6 +69,15 @@ class MLP(pl.LightningModule):
 
         self.train_acc.update(preds, y)
         self.train_f1.update(preds, y)
+
+        if self.l1_strength > 0:
+            l1_reg = sum(param.abs().sum() for param in self.parameters())
+            loss += self.l1_strength * l1_reg
+
+        # L2 regularizer
+        if self.l2_strength > 0:
+            l2_reg = sum(param.pow(2).sum() for param in self.parameters())
+            loss += self.l2_strength * l2_reg
 
         self.log("train_loss", loss, prog_bar=True)
         return loss
@@ -226,8 +237,7 @@ if __name__ == "__main__":
             )
 
             result = trainer.test(mlp, dataloader_test)
-            print("results:", result)
-            # results[model_name][fold] = result
+            print("result fold:", result)
 
             y_pred = mlp.predict(torch.Tensor(x_test).cpu())
             f1 = f1_score(y_test, y_pred, average="weighted")
@@ -236,13 +246,5 @@ if __name__ == "__main__":
 
         results_file_path = os.path.join(RESULTS_PATH, f"{model_name}.pkl")
         os.makedirs(os.path.dirname(results_file_path), exist_ok=True)
-        # results_file = open(results_file_path, "wb")
         with open(results_file_path, "wb") as results_file:
             pickle.dump(results, results_file)
-
-        # print(
-        #     classification_report(
-        #         y_test,
-        #         y_pred,
-        #     )
-        # )
