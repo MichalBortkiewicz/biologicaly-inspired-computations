@@ -111,7 +111,9 @@ def create_dataloader_from_xy(x, y, sampler=None) -> DataLoader:
     tensor_y = torch.Tensor(y).type(torch.LongTensor)
 
     dataset = TensorDataset(tensor_x, tensor_y)  # create your datset
-    dataloader = DataLoader(dataset, batch_size=32, sampler=sampler)  # create your dataloader
+    dataloader = DataLoader(
+        dataset, batch_size=32, sampler=sampler
+    )  # create your dataloader
     return dataloader
 
 
@@ -134,7 +136,7 @@ HIDDEN_UNITS_TO_CHECK = [
     [128, 128],
     [256, 128],
     [1024],
-    [1024, 128]
+    [1024, 128],
 ]
 
 if __name__ == "__main__":
@@ -167,12 +169,19 @@ if __name__ == "__main__":
         mode="max",
     )
 
-    x_test, y_test = x_original[int(4/5*x_original.shape[0]):], y_original[int(4/5*x_original.shape[0]):]
-    x, y = x_original[:int(4/5*x_original.shape[0])], y_original[:int(4/5*x_original.shape[0])]
+    x_test, y_test = (
+        x_original[int(4 / 5 * x_original.shape[0]) :],
+        y_original[int(4 / 5 * x_original.shape[0]) :],
+    )
+    x, y = (
+        x_original[: int(4 / 5 * x_original.shape[0])],
+        y_original[: int(4 / 5 * x_original.shape[0])],
+    )
 
     class_sample_count = np.array(
-        [len(np.where(y_original == t)[0]) for t in np.unique(y_original)])
-    weight = 1. / class_sample_count
+        [len(np.where(y_original == t)[0]) for t in np.unique(y_original)]
+    )
+    weight = 1.0 / class_sample_count
     samples_weight = np.array([weight[t] for t in y])
 
     samples_weight = torch.from_numpy(samples_weight)
@@ -192,14 +201,17 @@ if __name__ == "__main__":
         logger=tb_logger,
         callbacks=[checkpoint_callback],
     )
-    trainer.fit(
-        mlp, train_dataloader=dataloader_train, val_dataloaders=dataloader_test
-    )
+    trainer.fit(mlp, train_dataloader=dataloader_train, val_dataloaders=dataloader_test)
 
     result = trainer.test(mlp, dataloader_test)
     print("results:", result)
-    y_pred = mlp.predict(torch.Tensor(x[int(4/5*x.shape[0]):]).cpu())
-    print(classification_report(y[int(4/5*x.shape[0]):], y_pred, ))
+    y_pred = mlp.predict(torch.Tensor(x[int(4 / 5 * x.shape[0]) :]).cpu())
+    print(
+        classification_report(
+            y[int(4 / 5 * x.shape[0]) :],
+            y_pred,
+        )
+    )
 
     #
     #

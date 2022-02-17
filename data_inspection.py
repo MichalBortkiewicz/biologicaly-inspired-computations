@@ -68,16 +68,28 @@ if __name__ == "__main__":
     )
 
     # corss check
-    class_weights = class_weight.compute_class_weight('balanced',
-                                                      classes=np.unique(y_original[:int(4/5*x.shape[0])]),
-                                                      y=y_original[:int(4/5*x.shape[0])])
+    class_weights = class_weight.compute_class_weight(
+        "balanced",
+        classes=np.unique(y_original[: int(4 / 5 * x.shape[0])]),
+        y=y_original[: int(4 / 5 * x.shape[0])],
+    )
 
-    class_weights = {cls:weight for cls, weight in zip(np.unique(y_original[:int(4/5*x.shape[0])]), class_weights)}
+    class_weights = {
+        cls: weight
+        for cls, weight in zip(
+            np.unique(y_original[: int(4 / 5 * x.shape[0])]), class_weights
+        )
+    }
 
     clf = LogisticRegression(random_state=42, max_iter=500, class_weight=class_weights)
-    clf.fit(x[:int(4/5*x.shape[0])], y_original[:int(4/5*x.shape[0])])
-    y_pred = clf.predict(x[int(4/5*x.shape[0]):])
-    print(classification_report(y_original[int(4/5*x.shape[0]):], y_pred, ))
+    clf.fit(x[: int(4 / 5 * x.shape[0])], y_original[: int(4 / 5 * x.shape[0])])
+    y_pred = clf.predict(x[int(4 / 5 * x.shape[0]) :])
+    print(
+        classification_report(
+            y_original[int(4 / 5 * x.shape[0]) :],
+            y_pred,
+        )
+    )
 
     # Feature importance
     forest = RandomForestClassifier(random_state=0)
