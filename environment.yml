@@ -1,0 +1,25 @@
+name: jlab
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.8
+  - nomkl
+  - pip
+  - matplotlib
+  - seaborn
+  - pandas
+  - jupyter
+  - jupyterlab
+  - jupyterlab-lsp
+  - pytorch>=1.4
+  - pytorch-lightning
+  - scikit-learn
+  - torchvision>=0.5
+  - torchtext
+  - opencv
+  - tqdm
+  - pip:
+    - torchviz
+    - python-lsp-server[all]
+    - nb_black

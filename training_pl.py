@@ -1,6 +1,7 @@
 import copy
 import os
 import torch
+from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
 from sklearn import preprocessing
 from sklearn.metrics import confusion_matrix, accuracy_score
@@ -8,11 +9,8 @@ from sklearn.model_selection import KFold
 from sklearn.utils import shuffle
 from torch import nn
 import numpy as np
-
-# from torchvision.datasets import CIFAR10
+import pickle
 from torch.utils.data import DataLoader, TensorDataset
-
-# from torchvision import transforms
 
 import pytorch_lightning as pl
 from torchmetrics import Accuracy
@@ -20,6 +18,7 @@ from torchmetrics import Accuracy
 from data_inspection import create_merged_dataset, get_mapping_of_categories
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+pl.seed_everything(42)
 
 
 class MLP(pl.LightningModule):
@@ -88,12 +87,40 @@ class MLP(pl.LightningModule):
         return optimizer
 
 
+def create_dataloader_from_xy(x, y) -> DataLoader:
+    tensor_x = torch.Tensor(x)  # transform to torch tensor
+    tensor_y = torch.Tensor(y).type(torch.LongTensor)
+
+    dataset = TensorDataset(tensor_x, tensor_y)  # create your datset
+    dataloader = DataLoader(dataset, batch_size=32)  # create your dataloader
+    return dataloader
+
+
+OUTPUT_PATH = os.path.join("artifacts", "outputs")
+RESULTS_PATH = os.path.join("artifacts", "results")
+MODEL_NAME_PREFIX = "mlp"
+
+HIDDEN_UNITS_TO_CHECK = [
+    [8],
+    [16],
+    [32],
+    [16, 8],
+    [32, 16],
+    [32, 8],
+    [32, 16, 8],
+    [16, 16, 16],
+    [8, 8, 8],
+    [64],
+    [128],
+    [128,128],
+]
+
 if __name__ == "__main__":
+    # Dataset creation
     x, y = create_merged_dataset()
     x, y = shuffle(x, y)
     y_preprocessed = copy.deepcopy(y)
     x = preprocessing.StandardScaler().fit_transform(x)
-
 
     mapping = get_mapping_of_categories(y)
     mapping_orginal_to_new = dict((y, x) for x, y in mapping.items())
@@ -101,81 +128,56 @@ if __name__ == "__main__":
     y_original = np.array([mapping_orginal_to_new[elem] for elem in y])
     x_original = copy.deepcopy(x)
 
-    #
-    # x_test, y_test = x[700:], y[700:]
-    # x, y = x[:700], y[:700]
-    #
-    # # TODO: so that there are no negative classes - add preprocessing and mapping
-    #
-    # tensor_x = torch.Tensor(x)  # transform to torch tensor
-    # tensor_y = torch.Tensor(y).type(torch.LongTensor)
-    #
-    # dataset_train = TensorDataset(tensor_x, tensor_y)  # create your datset
-    # dataloader_train = DataLoader(
-    #     dataset_train, batch_size=32
-    # )  # create your dataloader
-    #
-    # tensor_x_test = torch.Tensor(x_test)  # transform to torch tensor
-    # tensor_y_test = torch.Tensor(y_test).type(torch.LongTensor)
-    #
-    # dataset_test = TensorDataset(tensor_x_test, tensor_y_test)  # create your datset
-    # dataloader_test = DataLoader(dataset_test, batch_size=32)  # create your dataloader
-    #
-    # pl.seed_everything(42)
-    # mlp = MLP()
-    # trainer = pl.Trainer(
-    #     auto_scale_batch_size="power", gpus=0, deterministic=True, max_epochs=20
-    # )
-    # # trainer.fit(mlp, DataLoader(dataset))
-    # trainer.fit(mlp, dataloader_train)
-    # results = trainer.test(mlp, dataloader_test)
+    # for i in range(len(HIDDEN_UNITS_TO_CHECK)):
+    for i in range(-3,0, 1):
+        # K fold crossval
+        kfold = KFold(shuffle=True, random_state=42)
 
-    kfold = KFold()
+        # Config
+        hidden_units = HIDDEN_UNITS_TO_CHECK[i]
+        model_config = "_".join([str(elem) for elem in hidden_units])
+        model_name = MODEL_NAME_PREFIX + f"_{model_config}"
 
-    for fold, (train_idx, valid_idx) in enumerate(kfold.split(x_original)):
-        # train_loader = create_dataloader(train_df.iloc[train_idx])
-        # valid_loader = create_dataloader(train_df.iloc[valid_idx])
-        #
+        results = {}
+        results[model_name] = {}
+        for fold, (train_idx, valid_idx) in enumerate(kfold.split(x_original)):
+            # Folder hack
+            tb_logger = TensorBoardLogger(
+                save_dir=OUTPUT_PATH, name=f"{model_name}", version=f"fold_{fold + 1}"
+            )
+            os.makedirs(os.path.join(OUTPUT_PATH, model_name), exist_ok=True)
+            checkpoint_callback = ModelCheckpoint(
+                dirpath=tb_logger.log_dir,
+                filename="{epoch:02d}-{valid_acc:.4f}",
+                monitor="valid_acc",
+                mode="max",
+            )
 
-        # # Folder hack
-        # tb_logger = TensorBoardLogger(save_dir=OUTPUT_PATH, name=f'{args.model_name}', version=f'fold_{fold + 1}')
-        # os.makedirs(OUTPUT_PATH / f'{args.model_name}, exist_ok=True)
-        # checkpoint_callback = ModelCheckpoint(filepath=tb_logger.log_dir + "/{epoch:02d}-{val_metric:.4f}",
-        #                                       monitor='val_metric', mode='max')
-        #
-        # model = YourPLModule(args)
-        # trainer = pl.Trainer(logger=tb_logger, early_stop_callback=early_stop_callback,
-        #                      checkpoint_callback=checkpoint_callback)
-        # trainer.fit(model, train_dataloader=train_loader, val_dataloaders=valid_loader)
+            x_test, y_test = x_original[valid_idx], y_original[valid_idx]
+            x, y = x_original[train_idx], y_original[train_idx]
 
+            dataloader_train = create_dataloader_from_xy(x, y)
 
-        # TODO: add logger of training curves to tensor board
-        x_test, y_test = x_original[valid_idx], y_original[valid_idx]
-        x, y = x_original[train_idx], y_original[train_idx]
+            dataloader_test = create_dataloader_from_xy(x_test, y_test)
 
-        # TODO: so that there are no negative classes - add preprocessing and mapping
+            mlp = MLP(hidden_units=hidden_units)
+            trainer = pl.Trainer(
+                auto_scale_batch_size="power",
+                gpus=0,
+                deterministic=True,
+                max_epochs=100,
+                logger=tb_logger,
+                callbacks=[checkpoint_callback],
+            )
+            trainer.fit(
+                mlp, train_dataloader=dataloader_train, val_dataloaders=dataloader_test
+            )
 
-        tensor_x = torch.Tensor(x)  # transform to torch tensor
-        tensor_y = torch.Tensor(y).type(torch.LongTensor)
+            result = trainer.test(mlp, dataloader_test)
+            print("results:", result)
+            results[model_name][fold] = result
 
-        dataset_train = TensorDataset(tensor_x, tensor_y)  # create your datset
-        dataloader_train = DataLoader(
-            dataset_train, batch_size=32
-        )  # create your dataloader
-
-        tensor_x_test = torch.Tensor(x_test)  # transform to torch tensor
-        tensor_y_test = torch.Tensor(y_test).type(torch.LongTensor)
-
-        dataset_test = TensorDataset(tensor_x_test, tensor_y_test)  # create your datset
-        dataloader_test = DataLoader(
-            dataset_test, batch_size=32
-        )  # create your dataloader
-
-        pl.seed_everything(42)
-        mlp = MLP()
-        trainer = pl.Trainer(
-            auto_scale_batch_size="power", gpus=0, deterministic=True, max_epochs=20
-        )
-        # trainer.fit(mlp, DataLoader(dataset))
-        trainer.fit(mlp, train_dataloader=dataloader_train,val_dataloaders=dataloader_test)
-        results = trainer.test(mlp, dataloader_test)
+        results_file_path = os.path.join(RESULTS_PATH, f"{model_name}.pkl")
+        os.makedirs(os.path.dirname(results_file_path), exist_ok=True)
+        results_file = open(results_file_path, "wb")
+        pickle.dump(results, results_file)
