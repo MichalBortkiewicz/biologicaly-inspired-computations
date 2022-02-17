@@ -150,22 +150,16 @@ HIDDEN_UNITS_TO_CHECK = [
     [8],
     [16],
     [32],
+    [64],
+    [128],
     [16, 8],
     [32, 16],
     [32, 8],
-    [32, 16, 8],
-    [16, 16, 16],
-    [8, 8, 8],
-    [64],
-    [128],
     [128, 128],
     [256, 128],
-    [256],
-    [1024, 128],
-    # [1024],
-    # [2024]
-    [64],
-
+    [8, 8, 8],
+    [32, 16, 8],
+    [16, 16, 16],
 ]
 
 if __name__ == "__main__":
@@ -183,8 +177,8 @@ if __name__ == "__main__":
 
     num_classes = max(mapping.keys()) + 1
 
-    # for i in range(len(HIDDEN_UNITS_TO_CHECK)):
-    for i in range(-1, 0, 1):
+    for i in range(len(HIDDEN_UNITS_TO_CHECK)):
+    # for i in range(-1, 0, 1):
         # K fold crossval
         kfold = KFold(shuffle=True, random_state=42)
 
@@ -194,7 +188,6 @@ if __name__ == "__main__":
         model_name = MODEL_NAME_PREFIX + f"_{model_config}"
 
         results = {}
-        results[model_name] = {}
         for fold, (train_idx, valid_idx) in enumerate(kfold.split(x_original)):
             # Folder hack
             tb_logger = TensorBoardLogger(
@@ -239,12 +232,13 @@ if __name__ == "__main__":
             y_pred = mlp.predict(torch.Tensor(x_test).cpu())
             f1 = f1_score(y_test, y_pred, average="weighted")
             acc = accuracy_score(y_test, y_pred)
-            results[model_name][fold] = {"test_acc": acc, "test_f1": f1}
+            results[fold] = {"test_acc": acc, "test_f1": f1}
 
         results_file_path = os.path.join(RESULTS_PATH, f"{model_name}.pkl")
         os.makedirs(os.path.dirname(results_file_path), exist_ok=True)
-        results_file = open(results_file_path, "wb")
-        pickle.dump(results, results_file)
+        # results_file = open(results_file_path, "wb")
+        with open(results_file_path, "wb") as results_file:
+            pickle.dump(results, results_file)
 
         # print(
         #     classification_report(

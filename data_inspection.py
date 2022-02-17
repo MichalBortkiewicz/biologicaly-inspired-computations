@@ -40,15 +40,6 @@ def create_merged_dataset(folder_name="dane_projekt"):
 
 
 if __name__ == "__main__":
-    # x, y = create_merged_dataset()
-    # x, y = shuffle(x, y)
-    #
-    # mapping = get_mapping_of_categories(y)
-    # mapping_orginal_to_new = dict((y, x) for x, y in mapping.items())
-    #
-    # y_mapped = np.array([mapping_orginal_to_new[elem ] for elem in y])
-    #
-    # x = preprocessing.StandardScaler().fit_transform(x)
 
     x, y = create_merged_dataset()
     x, y = shuffle(x, y, random_state=42)
@@ -70,15 +61,9 @@ if __name__ == "__main__":
 
     RESULTS_PATH = os.path.join("artifacts", "results")
 
-    # results_file_path = os.path.join(RESULTS_PATH, "baseline.pkl")
-    # os.makedirs(os.path.dirname(results_file_path), exist_ok=True)
-    # results_file = open(results_file_path, "wb")
-    # pickle.dump(results, results_file)
-
     model_name = "baseline"
     kfold = KFold(shuffle=True, random_state=42)
     results = {}
-    results[model_name] = {}
     for fold, (train_idx, valid_idx) in enumerate(kfold.split(x_original)):
         x_test, y_test = x_original[valid_idx], y_original[valid_idx]
         x, y = x_original[train_idx], y_original[train_idx]
@@ -88,8 +73,13 @@ if __name__ == "__main__":
         y_pred = clf.predict(x_test)
         f1 = f1_score(y_test, y_pred, average="weighted")
         acc = accuracy_score(y_test, y_pred)
-        results[model_name][fold] = {"test_acc": acc, "test_f1": f1}
+        results[fold] = {"test_acc": acc, "test_f1": f1}
 
+    results_file_path = os.path.join(RESULTS_PATH, f"{model_name}.pkl")
+    os.makedirs(os.path.dirname(results_file_path), exist_ok=True)
+    # results_file = open(results_file_path, "wb")
+    with open(results_file_path, "wb") as results_file:
+        pickle.dump(results, results_file)
     print(
         classification_report(
             y_test,
